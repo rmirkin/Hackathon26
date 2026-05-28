@@ -113,10 +113,11 @@ h1{font-size:2.2rem;text-align:center;margin-bottom:.5rem}
 <div class="card explanation">
 <h2>How does this work?</h2>
 <p>This detector analyzes audio features that differ between AI-generated and real human speech &mdash; entirely in your browser using the Web Audio API.</p>
-<p><strong>Jitter &amp; Shimmer:</strong> Real voices have natural micro-perturbations in pitch and volume. AI voices are unnaturally smooth.</p>
-<p><strong>Spectral patterns:</strong> AI-generated audio tends to have a "too clean" frequency profile, lacking the subtle noise and harmonics of real speech.</p>
-<p><strong>Pitch dynamics:</strong> Humans vary pitch naturally with emotion and emphasis. AI tends toward more predictable intonation patterns.</p>
-<p><strong>Silence &amp; breathing:</strong> Humans breathe, pause, and hesitate. Many AI voices produce continuous speech without natural gaps.</p>
+<p><strong>Pitch Variation:</strong> Real humans vary their pitch dynamically (std ~70Hz). AI voices tend to be flatter (~38Hz).</p>
+<p><strong>Volume Dynamics:</strong> Human speech has large volume swings (rms_std ~0.10). AI is more uniform (~0.05).</p>
+<p><strong>Spectral Flatness:</strong> AI-generated audio often has a flatter, noisier spectrum. Human speech is more tonal.</p>
+<p><strong>Silence Patterns:</strong> AI TTS often inserts mechanical pauses (~35% silence). Humans have less dead air (~14%).</p>
+<p><strong>Harmonic Structure:</strong> AI tends to have stronger harmonics relative to percussive elements.</p>
 </div>
 </div>
 
@@ -176,7 +177,7 @@ async function handleFileSelect(e){
     audioBuffer=await actx.decodeAudioData(ab);actx.close();
     document.getElementById('analyze-btn').classList.add('visible');
   }catch(err){
-    document.getElementById('error-msg').textContent='Could not decode audio file.';
+    document.getElementById('error-msg').textContent='Could not decode audio file. Try a .wav or .mp3.';
     document.getElementById('error-msg').classList.add('visible');
   }
 }
@@ -187,99 +188,89 @@ async function analyzeAudio(){
   document.getElementById('results').classList.remove('visible');
   document.getElementById('error-msg').classList.remove('visible');
   setTimeout(()=>{
-    try{displayResults(analyzeBuffer(audioBuffer));}
+    try{displayResults(classify(audioBuffer));}
     catch(e){document.getElementById('error-msg').textContent='Error: '+e.message;document.getElementById('error-msg').classList.add('visible');}
     document.getElementById('loading').classList.remove('visible');
   },100);
 }
 
-// ===== ANALYSIS ENGINE =====
-function analyzeBuffer(buffer){
-  const samples=buffer.getChannelData(0),sr=buffer.sampleRate;
+// ===== CLASSIFIER =====
+// Reference centroids learned from real training data:
+// AI centroid (macOS TTS, typical AI voices)
+const AI_REF = {f0_std:38.37, rms_std:0.0496, spectral_flatness:0.0335, silence_ratio:0.345, harmonic_ratio:1.096, zcr_std:0.1195};
+// Human centroid (real voice recordings)
+const HUMAN_REF = {f0_std:71.65, rms_std:0.1057, spectral_flatness:0.0122, silence_ratio:0.136, harmonic_ratio:0.919, zcr_std:0.0987};
+
+function classify(buffer){
+  const samples=buffer.getChannelData(0), sr=buffer.sampleRate;
   const trimmed=trimSilence(samples,0.01);
   const data=trimmed.length>sr*0.3?trimmed:samples;
 
+  // Extract features
   const rms=computeRMS(data,512);
   const zcr=computeZCR(data,512);
-  const f0Data=estimateF0(data,sr);
+  const f0s=estimateF0(data,sr);
   const spec=computeSpectralFeatures(data,sr);
 
-  const jitter=f0Data.length>2?mean(absDiff(f0Data))/mean(f0Data):0;
-  const shimmer=rms.length>2?mean(absDiff(rms))/mean(rms):0;
-  const f0Std=f0Data.length>2?std(f0Data):0;
-  const silenceRatio=countBelow(data,0.01)/data.length;
-  const spectralFlatness=spec.flatness;
-  const hnr=spec.hnr;
-  const zcrStd=std(zcr);
+  const features={
+    f0_std: f0s.length>2 ? std(f0s) : 30,
+    rms_std: std(rms),
+    spectral_flatness: spec.flatness,
+    silence_ratio: countBelow(data,0.01)/data.length,
+    harmonic_ratio: spec.harmonicRatio,
+    zcr_std: std(zcr)
+  };
 
-  // Weighted heuristic classifier
-  let aiScore=0,totalWeight=0;
+  // Compute distance to each centroid (weighted)
+  const weights={f0_std:3, rms_std:2.5, spectral_flatness:2, silence_ratio:2, harmonic_ratio:1.5, zcr_std:1};
+  let aiDist=0, humanDist=0;
+  for(const k of Object.keys(weights)){
+    const range=Math.abs(AI_REF[k]-HUMAN_REF[k])||1;
+    const dAI=Math.abs(features[k]-AI_REF[k])/range;
+    const dHuman=Math.abs(features[k]-HUMAN_REF[k])/range;
+    aiDist+=dAI*weights[k];
+    humanDist+=dHuman*weights[k];
+  }
 
-  // Jitter
-  totalWeight+=3;
-  if(jitter<0.012)aiScore+=3;else if(jitter<0.02)aiScore+=1.8;else if(jitter>0.05)aiScore-=0.9;
-
-  // Shimmer
-  totalWeight+=2;
-  if(shimmer<0.1)aiScore+=2;else if(shimmer<0.15)aiScore+=0.8;else if(shimmer>0.25)aiScore-=0.6;
-
-  // F0 std
-  totalWeight+=2.5;
-  if(f0Std<20)aiScore+=2.5;else if(f0Std<35)aiScore+=1.25;else if(f0Std>60)aiScore-=0.5;
-
-  // Silence
-  totalWeight+=1.5;
-  if(silenceRatio<0.05)aiScore+=1.5;else if(silenceRatio<0.1)aiScore+=0.6;else if(silenceRatio>0.2)aiScore-=0.3;
-
-  // Spectral flatness
-  totalWeight+=2;
-  if(spectralFlatness<0.01)aiScore+=2;else if(spectralFlatness<0.02)aiScore+=1;else if(spectralFlatness>0.05)aiScore-=0.6;
-
-  // HNR
-  totalWeight+=1.5;
-  if(hnr>15)aiScore+=1.5;else if(hnr>10)aiScore+=0.6;else if(hnr<5)aiScore-=0.45;
-
-  // ZCR variability
-  totalWeight+=1.5;
-  if(zcrStd<0.03)aiScore+=1.5;else if(zcrStd<0.05)aiScore+=0.6;else if(zcrStd>0.08)aiScore-=0.3;
-
-  const raw=Math.max(0,Math.min(1,(aiScore/totalWeight+0.1)*1.2));
-  const aiConf=Math.round(raw*1000)/10;
-  const humanConf=Math.round((1-raw)*1000)/10;
+  // Convert distances to confidence (closer = higher confidence)
+  const total=aiDist+humanDist||1;
+  const humanConf=Math.round((aiDist/total)*1000)/10;  // far from AI = human
+  const aiConf=Math.round((humanDist/total)*1000)/10;  // far from human = AI
+  const isAI=aiConf>humanConf;
 
   return{
-    prediction:aiConf>50?'AI-Generated':'Human',
-    isAI:aiConf>50,
+    prediction:isAI?'AI-Generated':'Human',
+    isAI,
     confidence:{ai:aiConf,human:humanConf},
     indicators:{
-      jitter:round6(jitter),shimmer:round6(shimmer),f0_std:Math.round(f0Std*100)/100,
-      spectral_flatness:round6(spectralFlatness),silence_ratio:Math.round(silenceRatio*10000)/10000,
-      hnr:Math.round(hnr*100)/100,zcr_variability:Math.round(zcrStd*10000)/10000
+      pitch_variation_hz:Math.round(features.f0_std*100)/100,
+      volume_dynamics:Math.round(features.rms_std*10000)/10000,
+      spectral_flatness:Math.round(features.spectral_flatness*10000)/10000,
+      silence_ratio:Math.round(features.silence_ratio*1000)/1000,
+      harmonic_ratio:Math.round(features.harmonic_ratio*1000)/1000,
+      zcr_variability:Math.round(features.zcr_std*10000)/10000
     }
   };
 }
 
-// ===== DSP HELPERS =====
-function round6(v){return Math.round(v*1000000)/1000000}
-function trimSilence(s,t){let a=0,b=s.length-1;while(a<b&&Math.abs(s[a])<t)a++;while(b>a&&Math.abs(s[b])<t)b--;return s.slice(a,b+1)}
+// ===== DSP =====
+function trimSilence(s,t){let a=0,b=s.length-1;while(a<b&&Math.abs(s[a])<t)a++;while(b>a&&Math.abs(s[b])<t)b--;return a<b?s.slice(a,b+1):s}
 function computeRMS(s,f){const r=[];for(let i=0;i<s.length-f;i+=f){let sum=0;for(let j=0;j<f;j++)sum+=s[i+j]**2;r.push(Math.sqrt(sum/f))}return r}
 function computeZCR(s,f){const r=[];for(let i=0;i<s.length-f;i+=f){let c=0;for(let j=1;j<f;j++)if((s[i+j]>=0)!==(s[i+j-1]>=0))c++;r.push(c/f)}return r}
+function countBelow(s,t){let c=0;for(let i=0;i<s.length;i++)if(Math.abs(s[i])<t)c++;return c}
+function mean(a){if(!a.length)return 0;let s=0;for(let i=0;i<a.length;i++)s+=a[i];return s/a.length}
+function std(a){if(a.length<2)return 0;const m=mean(a);let s=0;for(let i=0;i<a.length;i++)s+=(a[i]-m)**2;return Math.sqrt(s/a.length)}
 
 function estimateF0(samples,sr){
-  // Autocorrelation-based pitch estimation
-  const frameSize=Math.floor(sr*0.03);
-  const hopSize=Math.floor(sr*0.01);
-  const minLag=Math.floor(sr/500); // 500Hz max
-  const maxLag=Math.floor(sr/50);  // 50Hz min
+  const frameSize=Math.floor(sr*0.03),hopSize=Math.floor(sr*0.01);
+  const minLag=Math.floor(sr/500),maxLag=Math.floor(sr/50);
   const f0s=[];
   for(let i=0;i<samples.length-frameSize;i+=hopSize){
-    const frame=samples.slice(i,i+frameSize);
+    let energy=0;for(let j=i;j<i+frameSize;j++)energy+=samples[j]*samples[j];
+    if(energy<0.001*frameSize)continue;
     let bestLag=minLag,bestCorr=-1;
-    // Compute normalized autocorrelation
-    let energy=0;for(let j=0;j<frame.length;j++)energy+=frame[j]*frame[j];
-    if(energy<0.001)continue;
-    for(let lag=minLag;lag<Math.min(maxLag,frame.length);lag++){
-      let corr=0;for(let j=0;j<frame.length-lag;j++)corr+=frame[j]*frame[j+lag];
+    for(let lag=minLag;lag<Math.min(maxLag,frameSize);lag++){
+      let corr=0;for(let j=0;j<frameSize-lag;j++)corr+=samples[i+j]*samples[i+j+lag];
       corr/=energy;
       if(corr>bestCorr){bestCorr=corr;bestLag=lag;}
     }
@@ -289,75 +280,50 @@ function estimateF0(samples,sr){
 }
 
 function computeSpectralFeatures(samples,sr){
-  const fftSize=2048;
-  const numFrames=Math.floor(samples.length/fftSize);
-  let flatnessSum=0,hnrSum=0,count=0;
+  const fftSize=1024,numFrames=Math.min(50,Math.floor(samples.length/fftSize));
+  let flatSum=0,hrSum=0,count=0;
   for(let i=0;i<numFrames;i++){
-    const frame=samples.slice(i*fftSize,(i+1)*fftSize);
-    // Apply Hann window
+    const offset=Math.floor(i*samples.length/numFrames);
     const windowed=new Float32Array(fftSize);
-    for(let j=0;j<fftSize;j++)windowed[j]=frame[j]*0.5*(1-Math.cos(2*Math.PI*j/fftSize));
-    // Compute magnitude spectrum (real DFT approximation using power)
+    for(let j=0;j<fftSize&&offset+j<samples.length;j++)
+      windowed[j]=samples[offset+j]*0.5*(1-Math.cos(2*Math.PI*j/fftSize));
     const mag=new Float32Array(fftSize/2);
     for(let k=0;k<fftSize/2;k++){
       let re=0,im=0;
-      for(let n=0;n<fftSize;n++){
-        const angle=2*Math.PI*k*n/fftSize;
-        re+=windowed[n]*Math.cos(angle);
-        im-=windowed[n]*Math.sin(angle);
-      }
+      for(let n=0;n<fftSize;n++){const a=2*Math.PI*k*n/fftSize;re+=windowed[n]*Math.cos(a);im-=windowed[n]*Math.sin(a);}
       mag[k]=Math.sqrt(re*re+im*im)/fftSize;
     }
-    // Spectral flatness = geometric mean / arithmetic mean
-    let logSum=0,linSum=0,validBins=0;
-    for(let k=1;k<mag.length;k++){
-      if(mag[k]>1e-10){logSum+=Math.log(mag[k]);linSum+=mag[k];validBins++;}
-    }
-    if(validBins>0&&linSum>0){
-      const geoMean=Math.exp(logSum/validBins);
-      const ariMean=linSum/validBins;
-      flatnessSum+=geoMean/ariMean;
-    }
-    // HNR approximation: ratio of harmonic peak energy to noise floor
+    let logSum=0,linSum=0,valid=0;
+    for(let k=1;k<mag.length;k++){if(mag[k]>1e-10){logSum+=Math.log(mag[k]);linSum+=mag[k];valid++;}}
+    if(valid>0&&linSum>0){flatSum+=Math.exp(logSum/valid)/(linSum/valid);}
+    // Harmonic ratio: top peaks vs rest
     const sorted=[...mag].sort((a,b)=>b-a);
-    const top10=sorted.slice(0,10).reduce((a,b)=>a+b,0);
-    const bottom=sorted.slice(-Math.floor(mag.length/2)).reduce((a,b)=>a+b,0)||1e-10;
-    hnrSum+=10*Math.log10(top10/bottom+1e-10);
+    const topE=sorted.slice(0,10).reduce((a,b)=>a+b*b,0);
+    const restE=sorted.slice(10).reduce((a,b)=>a+b*b,0)||1e-10;
+    hrSum+=topE/restE;
     count++;
   }
-  return{flatness:count?flatnessSum/count:0,hnr:count?hnrSum/count:0};
+  return{flatness:count?flatSum/count:0, harmonicRatio:count?hrSum/count:0};
 }
 
-function mean(a){if(!a.length)return 0;let s=0;for(let i=0;i<a.length;i++)s+=a[i];return s/a.length}
-function std(a){if(a.length<2)return 0;const m=mean(a);let s=0;for(let i=0;i<a.length;i++)s+=(a[i]-m)**2;return Math.sqrt(s/a.length)}
-function absDiff(a){const r=[];for(let i=1;i<a.length;i++)r.push(Math.abs(a[i]-a[i-1]));return r}
-function countBelow(s,t){let c=0;for(let i=0;i<s.length;i++)if(Math.abs(s[i])<t)c++;return c}
-
-// ===== DISPLAY RESULTS =====
+// ===== DISPLAY =====
 function displayResults(data){
   const results=document.getElementById('results');
-  const vt=document.getElementById('verdict-text');
+  document.getElementById('verdict-text').textContent=data.prediction;
+  document.getElementById('verdict-text').className='verdict-text '+(data.isAI?'ai':'human');
   const cf=document.getElementById('confidence-fill');
-  const ig=document.getElementById('indicator-grid');
-
-  vt.textContent=data.prediction;
-  vt.className='verdict-text '+(data.isAI?'ai':'human');
-
   const pct=data.isAI?data.confidence.ai:data.confidence.human;
-  cf.style.width=pct+'%';
-  cf.className='confidence-fill '+(data.isAI?'ai':'human');
-  cf.textContent=pct+'%';
+  cf.style.width=pct+'%';cf.className='confidence-fill '+(data.isAI?'ai':'human');cf.textContent=pct+'%';
 
   const descs={
-    jitter:{name:'Pitch Jitter',hint:'Low = AI (too smooth)'},
-    shimmer:{name:'Amplitude Shimmer',hint:'Low = AI (too consistent)'},
-    f0_std:{name:'Pitch Variation (Hz)',hint:'Low = AI (monotone)'},
-    spectral_flatness:{name:'Spectral Flatness',hint:'Low = AI (too clean)'},
-    silence_ratio:{name:'Silence Ratio',hint:'Low = AI (no breathing)'},
-    hnr:{name:'Harmonic-to-Noise (dB)',hint:'High = AI (too clean)'},
-    zcr_variability:{name:'ZCR Variability',hint:'Low = AI (too uniform)'}
+    pitch_variation_hz:{name:'Pitch Variation (Hz)',hint:'Human ~72Hz, AI ~38Hz'},
+    volume_dynamics:{name:'Volume Dynamics',hint:'Human ~0.10, AI ~0.05'},
+    spectral_flatness:{name:'Spectral Flatness',hint:'Human ~0.012, AI ~0.034'},
+    silence_ratio:{name:'Silence Ratio',hint:'Human ~0.14, AI ~0.35'},
+    harmonic_ratio:{name:'Harmonic Ratio',hint:'Human ~0.92, AI ~1.10'},
+    zcr_variability:{name:'ZCR Variability',hint:'Human ~0.10, AI ~0.12'}
   };
-  ig.innerHTML='';
+  const ig=document.getElementById('indicator-grid');ig.innerHTML='';
   for(const[k,v]of Object.entries(data.indicators)){
     const d=descs[k]||{name:k,hint:''};
     const div=document.createElement('div');div.className='indicator';
