@@ -87,9 +87,19 @@
             gap: 0.5rem;
         }
         .font-tag {
-            padding: 0.3rem 0.7rem;
+            padding: 0.4rem 0.7rem;
             border-radius: 4px;
             font-size: 0.8rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.15rem;
+        }
+        .font-tag .font-name {
+            font-weight: 600;
+        }
+        .font-tag .font-source {
+            font-size: 0.65rem;
+            opacity: 0.7;
         }
         .font-tag.detected {
             background: #1b3a2a;
@@ -177,38 +187,139 @@
     <canvas id="detection-canvas"></canvas>
 
     <script>
-        const FONTS_TO_TEST = [
-            'Arial', 'Arial Black', 'Arial Narrow', 'Avant Garde',
-            'Bookman', 'Calibri', 'Cambria', 'Candara',
-            'Century Gothic', 'Comic Sans MS', 'Consolas', 'Constantia',
-            'Corbel', 'Courier', 'Courier New', 'Didot',
-            'Franklin Gothic Medium', 'Futura', 'Garamond', 'Geneva',
-            'Georgia', 'Gill Sans', 'Goudy Old Style', 'Helvetica',
-            'Helvetica Neue', 'Impact', 'Lucida Bright', 'Lucida Console',
-            'Lucida Grande', 'Lucida Sans Unicode', 'Microsoft Sans Serif',
-            'Monaco', 'Optima', 'Palatino', 'Palatino Linotype',
-            'Papyrus', 'Perpetua', 'Rockwell', 'Segoe UI',
-            'Tahoma', 'Times', 'Times New Roman', 'Trebuchet MS',
-            'Verdana', 'Wingdings', 'Wingdings 2', 'Wingdings 3',
-            // Less common fonts
-            'Andale Mono', 'Baskerville', 'Big Caslon', 'Bodoni MT',
-            'Book Antiqua', 'Brush Script MT', 'Calisto MT', 'Charcoal',
-            'Copperplate', 'Dejavu Sans', 'Fira Code', 'Fira Sans',
-            'Hoefler Text', 'Inter', 'JetBrains Mono', 'Lato',
-            'Menlo', 'Montserrat', 'Noto Sans', 'Open Sans',
-            'Oswald', 'PT Sans', 'Playfair Display', 'Raleway',
-            'Roboto', 'Roboto Mono', 'SF Pro', 'SF Mono',
-            'Source Code Pro', 'Source Sans Pro', 'Ubuntu', 'Ubuntu Mono',
-            'Zapfino', 'Apple Chancery', 'Apple Color Emoji',
-            'Avenir', 'Avenir Next', 'Charter', 'Cochin',
-            'Copperplate Gothic', 'Damascus', 'Devanagari MT',
-            'Euphemia UCAS', 'Geeza Pro', 'Heiti SC', 'Heiti TC',
-            'Hiragino Sans', 'Iowan Old Style', 'Kefa', 'Kohinoor',
-            'Marion', 'Marker Felt', 'Noteworthy', 'Phosphate',
-            'PingFang SC', 'PingFang TC', 'Savoye LET', 'SignPainter',
-            'Skia', 'Snell Roundhand', 'STSong', 'Sukhumvit Set',
-            'Superclarendon', 'Thonburi', 'Trattatello', 'Waseem'
+        // Each font mapped to the app/system that typically installs it
+        const FONT_DATA = [
+            // Microsoft Office / Windows
+            { name: 'Calibri', source: 'Microsoft Office' },
+            { name: 'Cambria', source: 'Microsoft Office' },
+            { name: 'Candara', source: 'Microsoft Office' },
+            { name: 'Consolas', source: 'Microsoft Office / Visual Studio' },
+            { name: 'Constantia', source: 'Microsoft Office' },
+            { name: 'Corbel', source: 'Microsoft Office' },
+            { name: 'Segoe UI', source: 'Windows' },
+            { name: 'Microsoft Sans Serif', source: 'Windows' },
+            { name: 'Franklin Gothic Medium', source: 'Microsoft Office' },
+            { name: 'Palatino Linotype', source: 'Microsoft Office' },
+            { name: 'Book Antiqua', source: 'Microsoft Office' },
+            { name: 'Perpetua', source: 'Microsoft Office' },
+            { name: 'Rockwell', source: 'Microsoft Office' },
+            { name: 'Bodoni MT', source: 'Microsoft Office' },
+            { name: 'Calisto MT', source: 'Microsoft Office' },
+            { name: 'Brush Script MT', source: 'Microsoft Office' },
+            { name: 'Goudy Old Style', source: 'Microsoft Office' },
+            { name: 'Wingdings 2', source: 'Microsoft Office' },
+            { name: 'Wingdings 3', source: 'Microsoft Office' },
+
+            // Windows system fonts
+            { name: 'Arial', source: 'Windows / macOS (system)' },
+            { name: 'Arial Black', source: 'Windows / macOS (system)' },
+            { name: 'Arial Narrow', source: 'Windows (system)' },
+            { name: 'Comic Sans MS', source: 'Windows (system)' },
+            { name: 'Courier New', source: 'Windows / macOS (system)' },
+            { name: 'Georgia', source: 'Windows / macOS (system)' },
+            { name: 'Impact', source: 'Windows / macOS (system)' },
+            { name: 'Tahoma', source: 'Windows (system)' },
+            { name: 'Times New Roman', source: 'Windows / macOS (system)' },
+            { name: 'Trebuchet MS', source: 'Windows / macOS (system)' },
+            { name: 'Verdana', source: 'Windows / macOS (system)' },
+            { name: 'Wingdings', source: 'Windows (system)' },
+            { name: 'Lucida Console', source: 'Windows (system)' },
+            { name: 'Lucida Sans Unicode', source: 'Windows (system)' },
+
+            // macOS system fonts
+            { name: 'Helvetica', source: 'macOS (system)' },
+            { name: 'Helvetica Neue', source: 'macOS (system)' },
+            { name: 'Futura', source: 'macOS (system)' },
+            { name: 'Geneva', source: 'macOS (system)' },
+            { name: 'Monaco', source: 'macOS (system)' },
+            { name: 'Optima', source: 'macOS (system)' },
+            { name: 'Palatino', source: 'macOS (system)' },
+            { name: 'Didot', source: 'macOS (system)' },
+            { name: 'Gill Sans', source: 'macOS (system)' },
+            { name: 'Lucida Grande', source: 'macOS (system)' },
+            { name: 'Menlo', source: 'macOS (system)' },
+            { name: 'Avenir', source: 'macOS (system)' },
+            { name: 'Avenir Next', source: 'macOS (system)' },
+            { name: 'Baskerville', source: 'macOS (system)' },
+            { name: 'Big Caslon', source: 'macOS (system)' },
+            { name: 'Cochin', source: 'macOS (system)' },
+            { name: 'Copperplate', source: 'macOS (system)' },
+            { name: 'Hoefler Text', source: 'macOS (system)' },
+            { name: 'Marker Felt', source: 'macOS (system)' },
+            { name: 'Papyrus', source: 'macOS (system)' },
+            { name: 'Zapfino', source: 'macOS (system)' },
+            { name: 'Apple Chancery', source: 'macOS (system)' },
+            { name: 'Apple Color Emoji', source: 'macOS / iOS (system)' },
+            { name: 'Charter', source: 'macOS (system)' },
+            { name: 'Damascus', source: 'macOS (Arabic support)' },
+            { name: 'Devanagari MT', source: 'macOS (Hindi support)' },
+            { name: 'Euphemia UCAS', source: 'macOS (Inuktitut support)' },
+            { name: 'Geeza Pro', source: 'macOS (Arabic support)' },
+            { name: 'Heiti SC', source: 'macOS (Chinese Simplified)' },
+            { name: 'Heiti TC', source: 'macOS (Chinese Traditional)' },
+            { name: 'Hiragino Sans', source: 'macOS (Japanese support)' },
+            { name: 'Iowan Old Style', source: 'macOS (system)' },
+            { name: 'Kefa', source: 'macOS (system)' },
+            { name: 'Kohinoor', source: 'macOS (Devanagari support)' },
+            { name: 'Marion', source: 'macOS (system)' },
+            { name: 'Noteworthy', source: 'macOS (system)' },
+            { name: 'Phosphate', source: 'macOS (system)' },
+            { name: 'PingFang SC', source: 'macOS (Chinese Simplified)' },
+            { name: 'PingFang TC', source: 'macOS (Chinese Traditional)' },
+            { name: 'Savoye LET', source: 'macOS (system)' },
+            { name: 'SignPainter', source: 'macOS (system)' },
+            { name: 'Skia', source: 'macOS (system)' },
+            { name: 'Snell Roundhand', source: 'macOS (system)' },
+            { name: 'STSong', source: 'macOS (Chinese support)' },
+            { name: 'Sukhumvit Set', source: 'macOS (Thai support)' },
+            { name: 'Superclarendon', source: 'macOS (system)' },
+            { name: 'Thonburi', source: 'macOS (Thai support)' },
+            { name: 'Trattatello', source: 'macOS (system)' },
+            { name: 'Waseem', source: 'macOS (Arabic support)' },
+            { name: 'SF Pro', source: 'macOS / Xcode' },
+            { name: 'SF Mono', source: 'macOS / Xcode / Terminal' },
+
+            // Adobe Creative Cloud
+            { name: 'Source Code Pro', source: 'Adobe Creative Cloud' },
+            { name: 'Source Sans Pro', source: 'Adobe Creative Cloud' },
+
+            // Google Fonts (web / Android)
+            { name: 'Roboto', source: 'Android / Google Fonts' },
+            { name: 'Roboto Mono', source: 'Android / Google Fonts' },
+            { name: 'Open Sans', source: 'Google Fonts' },
+            { name: 'Lato', source: 'Google Fonts' },
+            { name: 'Montserrat', source: 'Google Fonts' },
+            { name: 'Oswald', source: 'Google Fonts' },
+            { name: 'Raleway', source: 'Google Fonts' },
+            { name: 'PT Sans', source: 'Google Fonts' },
+            { name: 'Playfair Display', source: 'Google Fonts' },
+            { name: 'Inter', source: 'Google Fonts / Figma' },
+            { name: 'Noto Sans', source: 'Google Fonts / Android' },
+            { name: 'Fira Sans', source: 'Mozilla / Google Fonts' },
+
+            // Developer tools
+            { name: 'Fira Code', source: 'Dev tool (VS Code / editors)' },
+            { name: 'JetBrains Mono', source: 'JetBrains IDEs' },
+
+            // Linux
+            { name: 'Dejavu Sans', source: 'Linux (system)' },
+            { name: 'Ubuntu', source: 'Ubuntu Linux' },
+            { name: 'Ubuntu Mono', source: 'Ubuntu Linux' },
+
+            // Legacy / cross-platform
+            { name: 'Courier', source: 'Legacy (system)' },
+            { name: 'Times', source: 'Legacy (system)' },
+            { name: 'Bookman', source: 'Legacy (PostScript)' },
+            { name: 'Avant Garde', source: 'Legacy (PostScript)' },
+            { name: 'Century Gothic', source: 'Windows / macOS (system)' },
+            { name: 'Garamond', source: 'Windows / macOS (system)' },
+            { name: 'Lucida Bright', source: 'Java Runtime' },
+            { name: 'Andale Mono', source: 'Legacy web fonts pack' },
+            { name: 'Charcoal', source: 'Classic Mac OS' },
+            { name: 'Copperplate Gothic', source: 'Windows / macOS (system)' },
         ];
+
+        const FONTS_TO_TEST = FONT_DATA.map(f => f.name);
 
         const BASELINE_FONTS = ['monospace', 'sans-serif', 'serif'];
         const TEST_STRING = 'mmmmmmmmmmlli1|WQqpgj@#$%';
@@ -297,12 +408,18 @@
             const uniqueness = Math.min(99.9, (1 - 1 / Math.pow(2, Math.min(entropy, 33))) * 100);
             document.getElementById('uniqueness').textContent = uniqueness.toFixed(1) + '%';
 
+            // Build a lookup for source info
+            const sourceMap = {};
+            for (const fd of FONT_DATA) {
+                sourceMap[fd.name] = fd.source;
+            }
+
             // Render font grid
             const grid = document.getElementById('font-grid');
             grid.innerHTML = '';
 
             // Show detected first, then not detected
-            const sortedFonts = FONTS_TO_TEST.sort((a, b) => {
+            const sortedFonts = FONTS_TO_TEST.slice().sort((a, b) => {
                 if (results[a] === results[b]) return a.localeCompare(b);
                 return results[a] ? -1 : 1;
             });
@@ -310,7 +427,14 @@
             for (const font of sortedFonts) {
                 const tag = document.createElement('span');
                 tag.className = `font-tag ${results[font] ? 'detected' : 'not-detected'}`;
-                tag.textContent = font;
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'font-name';
+                nameSpan.textContent = font;
+                const sourceSpan = document.createElement('span');
+                sourceSpan.className = 'font-source';
+                sourceSpan.textContent = sourceMap[font] || 'Unknown';
+                tag.appendChild(nameSpan);
+                tag.appendChild(sourceSpan);
                 grid.appendChild(tag);
             }
         }
