@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Voice Call Detector</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a1a;
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 2rem 1rem;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: 2.2rem;
+            text-align: center;
+            margin-bottom: 0.5rem;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 2.5rem;
+            font-size: 1.1rem;
+        }
+
+        /* Input section */
+        .input-section {
+            background: #1a1a2e;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        .input-section h2 {
+            margin-bottom: 1.5rem;
+            font-size: 1.3rem;
+        }
+        .input-methods {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        @media (max-width: 600px) {
+            .input-methods { grid-template-columns: 1fr; }
+        }
+        .method-card {
+            background: #0d0d1a;
+            border: 2px dashed #444;
+            border-radius: 10px;
+            padding: 1.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+        }
+        .method-card:hover {
+            border-color: #6c63ff;
+            background: #15152a;
+        }
+        .method-card.active {
+            border-color: #00ff88;
+            border-style: solid;
+        }
+        .method-card .icon {
+            font-size: 2.5rem;
+            margin-bottom: 0.8rem;
+        }
+        .method-card .label {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 0.3rem;
+        }
+        .method-card .desc {
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        /* Recording UI */
+        .record-ui {
+            display: none;
+            margin-top: 1.5rem;
+            text-align: center;
+        }
+        .record-ui.visible { display: block; }
+        .record-btn {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: 3px solid #ff4444;
+            background: transparent;
+            cursor: pointer;
+            position: relative;
+            margin: 0 auto 1rem;
+            transition: all 0.2s;
+        }
+        .record-btn::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 30px;
+            height: 30px;
+            background: #ff4444;
+            border-radius: 50%;
+            transition: all 0.2s;
+        }
+        .record-btn.recording {
+            border-color: #ff4444;
+            animation: pulse-ring 1.5s infinite;
+        }
+        .record-btn.recording::after {
+            border-radius: 4px;
+            width: 24px;
+            height: 24px;
+        }
+        @keyframes pulse-ring {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.4); }
+            50% { box-shadow: 0 0 0 15px rgba(255, 68, 68, 0); }
+        }
+        .record-status {
+            color: #888;
+            font-size: 0.9rem;
+        }
+        .record-timer {
+            font-family: monospace;
+            font-size: 1.2rem;
+            color: #ff4444;
+            margin-top: 0.5rem;
+        }
+
+        /* Upload UI */
+        .upload-ui {
+            display: none;
+            margin-top: 1.5rem;
+        }
+        .upload-ui.visible { display: block; }
+        .file-input-wrapper {
+            text-align: center;
+        }
+        .file-input-wrapper input[type="file"] {
+            display: none;
+        }
+        .upload-btn {
+            background: #6c63ff;
+            color: white;
+            border: none;
+            padding: 0.8rem 2rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .upload-btn:hover { background: #5a52e0; }
+        .file-name {
+            margin-top: 0.8rem;
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        /* Analyze button */
+        .analyze-btn {
+            display: none;
+            width: 100%;
+            padding: 1rem;
+            margin-top: 1.5rem;
+            background: linear-gradient(135deg, #6c63ff, #00ff88);
+            color: #000;
+            font-weight: 700;
+            font-size: 1.1rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .analyze-btn.visible { display: block; }
+        .analyze-btn:hover { opacity: 0.9; }
+        .analyze-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Results */
+        .results {
+            display: none;
+            background: #1a1a2e;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        .results.visible { display: block; }
+        .verdict {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .verdict-label {
+            font-size: 0.9rem;
+            color: #888;
+            margin-bottom: 0.5rem;
+        }
+        .verdict-text {
+            font-size: 2.5rem;
+            font-weight: 800;
+        }
+        .verdict-text.ai { color: #ff4444; }
+        .verdict-text.human { color: #00ff88; }
+        .confidence-bar {
+            background: #0d0d1a;
+            border-radius: 20px;
+            height: 40px;
+            position: relative;
+            overflow: hidden;
+            margin: 1.5rem 0;
+        }
+        .confidence-fill {
+            height: 100%;
+            border-radius: 20px;
+            transition: width 0.8s ease;
+            display: flex;
+            align-items: center;
+            padding: 0 1rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        .confidence-fill.ai {
+            background: linear-gradient(90deg, #ff4444, #ff6b6b);
+            justify-content: flex-end;
+        }
+        .confidence-fill.human {
+            background: linear-gradient(90deg, #00ff88, #00cc6a);
+            color: #000;
+        }
+        .confidence-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: #888;
+        }
+
+        /* Indicators */
+        .indicators {
+            margin-top: 1.5rem;
+        }
+        .indicators h3 {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            color: #aaa;
+        }
+        .indicator-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 0.8rem;
+        }
+        .indicator {
+            background: #0d0d1a;
+            border-radius: 8px;
+            padding: 0.8rem;
+        }
+        .indicator .name {
+            font-size: 0.75rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .indicator .value {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-top: 0.2rem;
+            font-family: monospace;
+        }
+
+        /* Loading */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(10, 10, 26, 0.9);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+        .loading-overlay.visible {
+            display: flex;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #333;
+            border-top-color: #6c63ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text {
+            margin-top: 1rem;
+            color: #888;
+        }
+
+        /* Error */
+        .error-msg {
+            display: none;
+            background: #2a1b1b;
+            border: 1px solid #ff444444;
+            color: #ff6b6b;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+        }
+        .error-msg.visible { display: block; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📞 AI Voice Call Detector</h1>
+        <p class="subtitle">Record or upload a phone call to detect if the voice is AI-generated or a real human.</p>
+
+        <div class="input-section">
+            <h2>Provide Audio</h2>
+            <div class="input-methods">
+                <div class="method-card" id="record-card" onclick="selectMethod('record')">
+                    <div class="icon">🎙️</div>
+                    <div class="label">Record</div>
+                    <div class="desc">Record live audio from your microphone</div>
+                </div>
+                <div class="method-card" id="upload-card" onclick="selectMethod('upload')">
+                    <div class="icon">📁</div>
+                    <div class="label">Upload</div>
+                    <div class="desc">Upload a .wav, .mp3, or .ogg file</div>
+                </div>
+            </div>
+
+            <div class="record-ui" id="record-ui">
+                <button class="record-btn" id="record-btn" onclick="toggleRecording()"></button>
+                <div class="record-status" id="record-status">Click to start recording</div>
+                <div class="record-timer" id="record-timer"></div>
+            </div>
+
+            <div class="upload-ui" id="upload-ui">
+                <div class="file-input-wrapper">
+                    <button class="upload-btn" onclick="document.getElementById('file-input').click()">
+                        Choose Audio File
+                    </button>
+                    <input type="file" id="file-input" accept="audio/*" onchange="handleFileSelect(event)">
+                    <div class="file-name" id="file-name"></div>
+                </div>
+            </div>
+
+            <button class="analyze-btn" id="analyze-btn" onclick="analyzeAudio()">
+                🔍 Analyze Audio
+            </button>
+            <div class="error-msg" id="error-msg"></div>
+        </div>
+
+        <div class="results" id="results">
+            <div class="verdict">
+                <div class="verdict-label">VERDICT</div>
+                <div class="verdict-text" id="verdict-text"></div>
+            </div>
+
+            <div class="confidence-bar">
+                <div class="confidence-fill" id="confidence-fill"></div>
+            </div>
+            <div class="confidence-labels">
+                <span>👤 Human</span>
+                <span>🤖 AI-Generated</span>
+            </div>
+
+            <div class="indicators">
+                <h3>Detection Indicators</h3>
+                <div class="indicator-grid" id="indicator-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="loading-overlay" id="loading">
+        <div class="spinner"></div>
+        <div class="loading-text">Analyzing audio features...</div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000';
+
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let audioBlob = null;
+        let recordingInterval = null;
+        let recordingStart = 0;
+
+        function selectMethod(method) {
+            document.getElementById('record-card').classList.toggle('active', method === 'record');
+            document.getElementById('upload-card').classList.toggle('active', method === 'upload');
+            document.getElementById('record-ui').classList.toggle('visible', method === 'record');
+            document.getElementById('upload-ui').classList.toggle('visible', method === 'upload');
+            // Reset
+            audioBlob = null;
+            document.getElementById('analyze-btn').classList.remove('visible');
+            document.getElementById('error-msg').classList.remove('visible');
+        }
+
+        async function toggleRecording() {
+            const btn = document.getElementById('record-btn');
+            const status = document.getElementById('record-status');
+            const timer = document.getElementById('record-timer');
+
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                // Stop recording
+                mediaRecorder.stop();
+                btn.classList.remove('recording');
+                status.textContent = 'Recording saved. Click Analyze.';
+                timer.textContent = '';
+                clearInterval(recordingInterval);
+            } else {
+                // Start recording
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+
+                    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+                    mediaRecorder.onstop = () => {
+                        audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        document.getElementById('analyze-btn').classList.add('visible');
+                        stream.getTracks().forEach(t => t.stop());
+                    };
+
+                    mediaRecorder.start();
+                    btn.classList.add('recording');
+                    status.textContent = 'Recording... Click to stop.';
+                    recordingStart = Date.now();
+                    recordingInterval = setInterval(() => {
+                        const elapsed = Math.floor((Date.now() - recordingStart) / 1000);
+                        const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
+                        const secs = (elapsed % 60).toString().padStart(2, '0');
+                        timer.textContent = `${mins}:${secs}`;
+                    }, 1000);
+                } catch (err) {
+                    status.textContent = 'Microphone access denied.';
+                }
+            }
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                audioBlob = file;
+                document.getElementById('file-name').textContent = file.name;
+                document.getElementById('analyze-btn').classList.add('visible');
+            }
+        }
+
+        async function analyzeAudio() {
+            if (!audioBlob) return;
+
+            const loading = document.getElementById('loading');
+            const results = document.getElementById('results');
+            const errorMsg = document.getElementById('error-msg');
+
+            loading.classList.add('visible');
+            results.classList.remove('visible');
+            errorMsg.classList.remove('visible');
+
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'recording.wav');
+
+            try {
+                const response = await fetch(`${API_URL}/analyze`, {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || 'Server error');
+                }
+
+                const data = await response.json();
+                displayResults(data);
+            } catch (err) {
+                errorMsg.textContent = `Error: ${err.message}. Make sure the server is running (python server.py).`;
+                errorMsg.classList.add('visible');
+            } finally {
+                loading.classList.remove('visible');
+            }
+        }
+
+        function displayResults(data) {
+            const results = document.getElementById('results');
+            const verdictText = document.getElementById('verdict-text');
+            const confidenceFill = document.getElementById('confidence-fill');
+            const indicatorGrid = document.getElementById('indicator-grid');
+
+            // Verdict
+            verdictText.textContent = data.prediction;
+            verdictText.className = `verdict-text ${data.is_ai ? 'ai' : 'human'}`;
+
+            // Confidence bar
+            const aiConf = data.confidence.ai;
+            confidenceFill.style.width = `${aiConf}%`;
+            confidenceFill.className = `confidence-fill ${data.is_ai ? 'ai' : 'human'}`;
+            confidenceFill.textContent = `${Math.max(data.confidence.ai, data.confidence.human)}%`;
+
+            if (!data.is_ai) {
+                confidenceFill.style.width = `${data.confidence.human}%`;
+            }
+
+            // Indicators
+            const indicatorDescriptions = {
+                jitter: { name: 'Pitch Jitter', desc: 'Low = AI (too smooth)' },
+                shimmer: { name: 'Amplitude Shimmer', desc: 'Low = AI (too consistent)' },
+                f0_std: { name: 'Pitch Variation', desc: 'Low = AI (monotone)' },
+                spectral_flatness: { name: 'Spectral Flatness', desc: 'High = more noise-like' },
+                silence_ratio: { name: 'Silence Ratio', desc: 'Natural pauses' },
+                harmonic_percussive_ratio: { name: 'Harmonic/Percussive', desc: 'Voice clarity ratio' },
+            };
+
+            indicatorGrid.innerHTML = '';
+            for (const [key, value] of Object.entries(data.indicators)) {
+                const info = indicatorDescriptions[key] || { name: key, desc: '' };
+                const div = document.createElement('div');
+                div.className = 'indicator';
+                div.innerHTML = `
+                    <div class="name">${info.name}</div>
+                    <div class="value">${value}</div>
+                    <div class="name" style="margin-top:0.3rem;font-size:0.65rem;">${info.desc}</div>
+                `;
+                indicatorGrid.appendChild(div);
+            }
+
+            results.classList.add('visible');
+        }
+    </script>
+</body>
+</html>
