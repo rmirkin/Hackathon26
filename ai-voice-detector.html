@@ -67,21 +67,12 @@ h1{font-size:2.2rem;text-align:center;margin-bottom:.5rem}
 <body>
 <div class="container">
 <h1>&#x1F4DE; AI Voice Call Detector</h1>
-<p class="subtitle">Record or upload audio to detect if the voice is AI-generated or a real human. Runs entirely in your browser &mdash; no data leaves your device.</p>
-
+<p class="subtitle">Record or upload audio to detect if the voice is AI-generated or a real human. Trained on real samples. Runs entirely in your browser.</p>
 <div class="card">
 <h2>Provide Audio</h2>
 <div class="input-methods">
-<div class="method-card" id="record-card" onclick="selectMethod('record')">
-<div class="icon">&#x1F399;&#xFE0F;</div>
-<div class="label">Record</div>
-<div class="desc">Record live audio from your microphone</div>
-</div>
-<div class="method-card" id="upload-card" onclick="selectMethod('upload')">
-<div class="icon">&#x1F4C1;</div>
-<div class="label">Upload</div>
-<div class="desc">Upload a .wav, .mp3, or .ogg file</div>
-</div>
+<div class="method-card" id="record-card" onclick="selectMethod('record')"><div class="icon">&#x1F399;&#xFE0F;</div><div class="label">Record</div><div class="desc">Record from your microphone</div></div>
+<div class="method-card" id="upload-card" onclick="selectMethod('upload')"><div class="icon">&#x1F4C1;</div><div class="label">Upload</div><div class="desc">Upload a .wav, .mp3, or .ogg</div></div>
 </div>
 <div class="record-ui" id="record-ui">
 <button class="record-btn" id="record-btn" onclick="toggleRecording()"></button>
@@ -96,242 +87,17 @@ h1{font-size:2.2rem;text-align:center;margin-bottom:.5rem}
 <button class="analyze-btn" id="analyze-btn" onclick="analyzeAudio()">&#x1F50D; Analyze Audio</button>
 <div class="error-msg" id="error-msg"></div>
 </div>
-
 <div class="card results" id="results">
-<div class="verdict">
-<div class="verdict-label">VERDICT</div>
-<div class="verdict-text" id="verdict-text"></div>
-</div>
+<div class="verdict"><div class="verdict-label">VERDICT</div><div class="verdict-text" id="verdict-text"></div></div>
 <div class="confidence-bar"><div class="confidence-fill" id="confidence-fill"></div></div>
 <div class="confidence-labels"><span>&#x1F464; Human</span><span>&#x1F916; AI-Generated</span></div>
-<div class="indicators">
-<h3>Detection Indicators</h3>
-<div class="indicator-grid" id="indicator-grid"></div>
+<div class="indicators"><h3>Detection Indicators</h3><div class="indicator-grid" id="indicator-grid"></div></div>
 </div>
-</div>
-
 <div class="card explanation">
 <h2>How does this work?</h2>
-<p>This detector analyzes audio features that differ between AI-generated and real human speech &mdash; entirely in your browser using the Web Audio API.</p>
-<p><strong>Pitch Variation:</strong> Real humans vary their pitch dynamically (std ~70Hz). AI voices tend to be flatter (~38Hz).</p>
-<p><strong>Volume Dynamics:</strong> Human speech has large volume swings (rms_std ~0.10). AI is more uniform (~0.05).</p>
-<p><strong>Spectral Flatness:</strong> AI-generated audio often has a flatter, noisier spectrum. Human speech is more tonal.</p>
-<p><strong>Silence Patterns:</strong> AI TTS often inserts mechanical pauses (~35% silence). Humans have less dead air (~14%).</p>
-<p><strong>Harmonic Structure:</strong> AI tends to have stronger harmonics relative to percussive elements.</p>
+<p>This detector was trained on real AI-generated voice samples and real human recordings. It extracts 23 audio features and compares them to learned AI and human profiles using importance-weighted distance.</p>
+<p><strong>Top signals:</strong> Silence patterns, pitch mean/variation, volume dynamics, spectral flatness, and harmonic structure are the strongest differentiators.</p>
+<p>The model runs entirely client-side using the Web Audio API. No audio data is sent anywhere.</p>
 </div>
 </div>
-
-<div class="loading-overlay" id="loading">
-<div class="spinner"></div>
-<div class="loading-text">Analyzing audio features...</div>
-</div>
-
-<script>
-// ===== UI =====
-let mediaRecorder=null,audioChunks=[],audioBuffer=null,recordingInterval=null,recordingStart=0;
-
-function selectMethod(m){
-  document.getElementById('record-card').classList.toggle('active',m==='record');
-  document.getElementById('upload-card').classList.toggle('active',m==='upload');
-  document.getElementById('record-ui').classList.toggle('visible',m==='record');
-  document.getElementById('upload-ui').classList.toggle('visible',m==='upload');
-  audioBuffer=null;
-  document.getElementById('analyze-btn').classList.remove('visible');
-  document.getElementById('error-msg').classList.remove('visible');
-}
-
-async function toggleRecording(){
-  const btn=document.getElementById('record-btn'),status=document.getElementById('record-status'),timer=document.getElementById('record-timer');
-  if(mediaRecorder&&mediaRecorder.state==='recording'){
-    mediaRecorder.stop();btn.classList.remove('recording');
-    status.textContent='Recording saved. Click Analyze.';timer.textContent='';clearInterval(recordingInterval);
-  } else {
-    try{
-      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-      mediaRecorder=new MediaRecorder(stream);audioChunks=[];
-      mediaRecorder.ondataavailable=e=>audioChunks.push(e.data);
-      mediaRecorder.onstop=async()=>{
-        const blob=new Blob(audioChunks,{type:'audio/webm'});
-        const ab=await blob.arrayBuffer();
-        const actx=new AudioContext({sampleRate:16000});
-        audioBuffer=await actx.decodeAudioData(ab);actx.close();
-        document.getElementById('analyze-btn').classList.add('visible');
-        stream.getTracks().forEach(t=>t.stop());
-      };
-      mediaRecorder.start();btn.classList.add('recording');
-      status.textContent='Recording... Click to stop.';recordingStart=Date.now();
-      recordingInterval=setInterval(()=>{
-        const s=Math.floor((Date.now()-recordingStart)/1000);
-        timer.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
-      },1000);
-    }catch(e){status.textContent='Microphone access denied.';}
-  }
-}
-
-async function handleFileSelect(e){
-  const file=e.target.files[0];if(!file)return;
-  document.getElementById('file-name').textContent=file.name;
-  try{
-    const ab=await file.arrayBuffer();
-    const actx=new AudioContext({sampleRate:16000});
-    audioBuffer=await actx.decodeAudioData(ab);actx.close();
-    document.getElementById('analyze-btn').classList.add('visible');
-  }catch(err){
-    document.getElementById('error-msg').textContent='Could not decode audio file. Try a .wav or .mp3.';
-    document.getElementById('error-msg').classList.add('visible');
-  }
-}
-
-async function analyzeAudio(){
-  if(!audioBuffer)return;
-  document.getElementById('loading').classList.add('visible');
-  document.getElementById('results').classList.remove('visible');
-  document.getElementById('error-msg').classList.remove('visible');
-  setTimeout(()=>{
-    try{displayResults(classify(audioBuffer));}
-    catch(e){document.getElementById('error-msg').textContent='Error: '+e.message;document.getElementById('error-msg').classList.add('visible');}
-    document.getElementById('loading').classList.remove('visible');
-  },100);
-}
-
-// ===== CLASSIFIER =====
-// Reference centroids learned from real training data:
-// AI centroid (macOS TTS, typical AI voices)
-const AI_REF = {f0_std:38.37, rms_std:0.0496, spectral_flatness:0.0335, silence_ratio:0.345, harmonic_ratio:1.096, zcr_std:0.1195};
-// Human centroid (real voice recordings)
-const HUMAN_REF = {f0_std:71.65, rms_std:0.1057, spectral_flatness:0.0122, silence_ratio:0.136, harmonic_ratio:0.919, zcr_std:0.0987};
-
-function classify(buffer){
-  const samples=buffer.getChannelData(0), sr=buffer.sampleRate;
-  const trimmed=trimSilence(samples,0.01);
-  const data=trimmed.length>sr*0.3?trimmed:samples;
-
-  // Extract features
-  const rms=computeRMS(data,512);
-  const zcr=computeZCR(data,512);
-  const f0s=estimateF0(data,sr);
-  const spec=computeSpectralFeatures(data,sr);
-
-  const features={
-    f0_std: f0s.length>2 ? std(f0s) : 30,
-    rms_std: std(rms),
-    spectral_flatness: spec.flatness,
-    silence_ratio: countBelow(data,0.01)/data.length,
-    harmonic_ratio: spec.harmonicRatio,
-    zcr_std: std(zcr)
-  };
-
-  // Compute distance to each centroid (weighted)
-  const weights={f0_std:3, rms_std:2.5, spectral_flatness:2, silence_ratio:2, harmonic_ratio:1.5, zcr_std:1};
-  let aiDist=0, humanDist=0;
-  for(const k of Object.keys(weights)){
-    const range=Math.abs(AI_REF[k]-HUMAN_REF[k])||1;
-    const dAI=Math.abs(features[k]-AI_REF[k])/range;
-    const dHuman=Math.abs(features[k]-HUMAN_REF[k])/range;
-    aiDist+=dAI*weights[k];
-    humanDist+=dHuman*weights[k];
-  }
-
-  // Convert distances to confidence (closer = higher confidence)
-  const total=aiDist+humanDist||1;
-  const humanConf=Math.round((aiDist/total)*1000)/10;  // far from AI = human
-  const aiConf=Math.round((humanDist/total)*1000)/10;  // far from human = AI
-  const isAI=aiConf>humanConf;
-
-  return{
-    prediction:isAI?'AI-Generated':'Human',
-    isAI,
-    confidence:{ai:aiConf,human:humanConf},
-    indicators:{
-      pitch_variation_hz:Math.round(features.f0_std*100)/100,
-      volume_dynamics:Math.round(features.rms_std*10000)/10000,
-      spectral_flatness:Math.round(features.spectral_flatness*10000)/10000,
-      silence_ratio:Math.round(features.silence_ratio*1000)/1000,
-      harmonic_ratio:Math.round(features.harmonic_ratio*1000)/1000,
-      zcr_variability:Math.round(features.zcr_std*10000)/10000
-    }
-  };
-}
-
-// ===== DSP =====
-function trimSilence(s,t){let a=0,b=s.length-1;while(a<b&&Math.abs(s[a])<t)a++;while(b>a&&Math.abs(s[b])<t)b--;return a<b?s.slice(a,b+1):s}
-function computeRMS(s,f){const r=[];for(let i=0;i<s.length-f;i+=f){let sum=0;for(let j=0;j<f;j++)sum+=s[i+j]**2;r.push(Math.sqrt(sum/f))}return r}
-function computeZCR(s,f){const r=[];for(let i=0;i<s.length-f;i+=f){let c=0;for(let j=1;j<f;j++)if((s[i+j]>=0)!==(s[i+j-1]>=0))c++;r.push(c/f)}return r}
-function countBelow(s,t){let c=0;for(let i=0;i<s.length;i++)if(Math.abs(s[i])<t)c++;return c}
-function mean(a){if(!a.length)return 0;let s=0;for(let i=0;i<a.length;i++)s+=a[i];return s/a.length}
-function std(a){if(a.length<2)return 0;const m=mean(a);let s=0;for(let i=0;i<a.length;i++)s+=(a[i]-m)**2;return Math.sqrt(s/a.length)}
-
-function estimateF0(samples,sr){
-  const frameSize=Math.floor(sr*0.03),hopSize=Math.floor(sr*0.01);
-  const minLag=Math.floor(sr/500),maxLag=Math.floor(sr/50);
-  const f0s=[];
-  for(let i=0;i<samples.length-frameSize;i+=hopSize){
-    let energy=0;for(let j=i;j<i+frameSize;j++)energy+=samples[j]*samples[j];
-    if(energy<0.001*frameSize)continue;
-    let bestLag=minLag,bestCorr=-1;
-    for(let lag=minLag;lag<Math.min(maxLag,frameSize);lag++){
-      let corr=0;for(let j=0;j<frameSize-lag;j++)corr+=samples[i+j]*samples[i+j+lag];
-      corr/=energy;
-      if(corr>bestCorr){bestCorr=corr;bestLag=lag;}
-    }
-    if(bestCorr>0.3)f0s.push(sr/bestLag);
-  }
-  return f0s;
-}
-
-function computeSpectralFeatures(samples,sr){
-  const fftSize=1024,numFrames=Math.min(50,Math.floor(samples.length/fftSize));
-  let flatSum=0,hrSum=0,count=0;
-  for(let i=0;i<numFrames;i++){
-    const offset=Math.floor(i*samples.length/numFrames);
-    const windowed=new Float32Array(fftSize);
-    for(let j=0;j<fftSize&&offset+j<samples.length;j++)
-      windowed[j]=samples[offset+j]*0.5*(1-Math.cos(2*Math.PI*j/fftSize));
-    const mag=new Float32Array(fftSize/2);
-    for(let k=0;k<fftSize/2;k++){
-      let re=0,im=0;
-      for(let n=0;n<fftSize;n++){const a=2*Math.PI*k*n/fftSize;re+=windowed[n]*Math.cos(a);im-=windowed[n]*Math.sin(a);}
-      mag[k]=Math.sqrt(re*re+im*im)/fftSize;
-    }
-    let logSum=0,linSum=0,valid=0;
-    for(let k=1;k<mag.length;k++){if(mag[k]>1e-10){logSum+=Math.log(mag[k]);linSum+=mag[k];valid++;}}
-    if(valid>0&&linSum>0){flatSum+=Math.exp(logSum/valid)/(linSum/valid);}
-    // Harmonic ratio: top peaks vs rest
-    const sorted=[...mag].sort((a,b)=>b-a);
-    const topE=sorted.slice(0,10).reduce((a,b)=>a+b*b,0);
-    const restE=sorted.slice(10).reduce((a,b)=>a+b*b,0)||1e-10;
-    hrSum+=topE/restE;
-    count++;
-  }
-  return{flatness:count?flatSum/count:0, harmonicRatio:count?hrSum/count:0};
-}
-
-// ===== DISPLAY =====
-function displayResults(data){
-  const results=document.getElementById('results');
-  document.getElementById('verdict-text').textContent=data.prediction;
-  document.getElementById('verdict-text').className='verdict-text '+(data.isAI?'ai':'human');
-  const cf=document.getElementById('confidence-fill');
-  const pct=data.isAI?data.confidence.ai:data.confidence.human;
-  cf.style.width=pct+'%';cf.className='confidence-fill '+(data.isAI?'ai':'human');cf.textContent=pct+'%';
-
-  const descs={
-    pitch_variation_hz:{name:'Pitch Variation (Hz)',hint:'Human ~72Hz, AI ~38Hz'},
-    volume_dynamics:{name:'Volume Dynamics',hint:'Human ~0.10, AI ~0.05'},
-    spectral_flatness:{name:'Spectral Flatness',hint:'Human ~0.012, AI ~0.034'},
-    silence_ratio:{name:'Silence Ratio',hint:'Human ~0.14, AI ~0.35'},
-    harmonic_ratio:{name:'Harmonic Ratio',hint:'Human ~0.92, AI ~1.10'},
-    zcr_variability:{name:'ZCR Variability',hint:'Human ~0.10, AI ~0.12'}
-  };
-  const ig=document.getElementById('indicator-grid');ig.innerHTML='';
-  for(const[k,v]of Object.entries(data.indicators)){
-    const d=descs[k]||{name:k,hint:''};
-    const div=document.createElement('div');div.className='indicator';
-    div.innerHTML='<div class="name">'+d.name+'</div><div class="value">'+v+'</div><div class="hint">'+d.hint+'</div>';
-    ig.appendChild(div);
-  }
-  results.classList.add('visible');
-}
-</script>
-</body>
-</html>
+<div class="loading-overlay" id="loading"><div class="spinner"></div><div class="loading-text">Analyzing audio features...</div></div>
