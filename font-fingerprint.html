@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Font Fingerprint Demo</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f23;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem 1rem;
+        }
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            color: #fff;
+        }
+        .subtitle {
+            color: #888;
+            margin-bottom: 2rem;
+            text-align: center;
+            max-width: 600px;
+        }
+        .fingerprint-box {
+            background: #1a1a2e;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 2rem;
+            max-width: 700px;
+            width: 100%;
+            margin-bottom: 2rem;
+        }
+        .hash-display {
+            font-family: 'Courier New', monospace;
+            font-size: 1.4rem;
+            color: #00ff88;
+            word-break: break-all;
+            text-align: center;
+            padding: 1rem;
+            background: #0d0d1a;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+        .stat-card {
+            background: #0d0d1a;
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+        .stat-card .number {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #6c63ff;
+        }
+        .stat-card .label {
+            font-size: 0.85rem;
+            color: #888;
+            margin-top: 0.3rem;
+        }
+        .font-list {
+            background: #1a1a2e;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 2rem;
+            max-width: 700px;
+            width: 100%;
+        }
+        .font-list h2 {
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+        .font-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .font-tag {
+            padding: 0.3rem 0.7rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+        .font-tag.detected {
+            background: #1b3a2a;
+            color: #00ff88;
+            border: 1px solid #00ff8844;
+        }
+        .font-tag.not-detected {
+            background: #2a1b1b;
+            color: #ff4444;
+            border: 1px solid #ff444444;
+        }
+        .explanation {
+            background: #1a1a2e;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 2rem;
+            max-width: 700px;
+            width: 100%;
+            margin-top: 2rem;
+        }
+        .explanation h2 {
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+        .explanation p {
+            color: #aaa;
+            line-height: 1.6;
+            margin-bottom: 0.8rem;
+        }
+        #detection-canvas {
+            position: absolute;
+            left: -9999px;
+            top: -9999px;
+        }
+        .loading {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+    </style>
+</head>
+<body>
+    <h1>🔤 Font Fingerprint</h1>
+    <p class="subtitle">Your browser's installed fonts create a unique signature that can identify you across the web — even without cookies.</p>
+
+    <div class="fingerprint-box">
+        <h2>Your Font Fingerprint</h2>
+        <div class="hash-display loading" id="hash-display">Calculating...</div>
+        <div class="stats">
+            <div class="stat-card">
+                <div class="number" id="detected-count">—</div>
+                <div class="label">Fonts Detected</div>
+            </div>
+            <div class="stat-card">
+                <div class="number" id="tested-count">—</div>
+                <div class="label">Fonts Tested</div>
+            </div>
+            <div class="stat-card">
+                <div class="number" id="uniqueness">—</div>
+                <div class="label">Estimated Uniqueness</div>
+            </div>
+            <div class="stat-card">
+                <div class="number" id="entropy">—</div>
+                <div class="label">Bits of Entropy</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="font-list">
+        <h2>Detected Fonts</h2>
+        <div class="font-grid" id="font-grid">
+            <span class="loading" style="color:#888;">Scanning...</span>
+        </div>
+    </div>
+
+    <div class="explanation">
+        <h2>How does this work?</h2>
+        <p>This page renders hidden text in various font families and measures the resulting pixel dimensions. If a font is installed on your system, the text renders differently than the fallback font — revealing which fonts you have.</p>
+        <p>The combination of installed fonts varies between operating systems, language packs, and software you've installed (like Adobe Creative Suite, Microsoft Office, etc). This makes your font set a surprisingly effective fingerprint.</p>
+        <p>Combined with other signals (canvas, WebGL, screen size), font fingerprinting can identify users with over 99% accuracy — no cookies required.</p>
+    </div>
+
+    <canvas id="detection-canvas"></canvas>
+
+    <script>
+        const FONTS_TO_TEST = [
+            'Arial', 'Arial Black', 'Arial Narrow', 'Avant Garde',
+            'Bookman', 'Calibri', 'Cambria', 'Candara',
+            'Century Gothic', 'Comic Sans MS', 'Consolas', 'Constantia',
+            'Corbel', 'Courier', 'Courier New', 'Didot',
+            'Franklin Gothic Medium', 'Futura', 'Garamond', 'Geneva',
+            'Georgia', 'Gill Sans', 'Goudy Old Style', 'Helvetica',
+            'Helvetica Neue', 'Impact', 'Lucida Bright', 'Lucida Console',
+            'Lucida Grande', 'Lucida Sans Unicode', 'Microsoft Sans Serif',
+            'Monaco', 'Optima', 'Palatino', 'Palatino Linotype',
+            'Papyrus', 'Perpetua', 'Rockwell', 'Segoe UI',
+            'Tahoma', 'Times', 'Times New Roman', 'Trebuchet MS',
+            'Verdana', 'Wingdings', 'Wingdings 2', 'Wingdings 3',
+            // Less common fonts
+            'Andale Mono', 'Baskerville', 'Big Caslon', 'Bodoni MT',
+            'Book Antiqua', 'Brush Script MT', 'Calisto MT', 'Charcoal',
+            'Copperplate', 'Dejavu Sans', 'Fira Code', 'Fira Sans',
+            'Hoefler Text', 'Inter', 'JetBrains Mono', 'Lato',
+            'Menlo', 'Montserrat', 'Noto Sans', 'Open Sans',
+            'Oswald', 'PT Sans', 'Playfair Display', 'Raleway',
+            'Roboto', 'Roboto Mono', 'SF Pro', 'SF Mono',
+            'Source Code Pro', 'Source Sans Pro', 'Ubuntu', 'Ubuntu Mono',
+            'Zapfino', 'Apple Chancery', 'Apple Color Emoji',
+            'Avenir', 'Avenir Next', 'Charter', 'Cochin',
+            'Copperplate Gothic', 'Damascus', 'Devanagari MT',
+            'Euphemia UCAS', 'Geeza Pro', 'Heiti SC', 'Heiti TC',
+            'Hiragino Sans', 'Iowan Old Style', 'Kefa', 'Kohinoor',
+            'Marion', 'Marker Felt', 'Noteworthy', 'Phosphate',
+            'PingFang SC', 'PingFang TC', 'Savoye LET', 'SignPainter',
+            'Skia', 'Snell Roundhand', 'STSong', 'Sukhumvit Set',
+            'Superclarendon', 'Thonburi', 'Trattatello', 'Waseem'
+        ];
+
+        const BASELINE_FONTS = ['monospace', 'sans-serif', 'serif'];
+        const TEST_STRING = 'mmmmmmmmmmlli1|WQqpgj@#$%';
+        const TEST_SIZE = '72px';
+
+        function detectFonts() {
+            const canvas = document.getElementById('detection-canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 600;
+            canvas.height = 100;
+
+            // Get baseline measurements
+            const baselines = {};
+            for (const baseFont of BASELINE_FONTS) {
+                ctx.font = `${TEST_SIZE} ${baseFont}`;
+                const metrics = ctx.measureText(TEST_STRING);
+                baselines[baseFont] = {
+                    width: metrics.width,
+                    height: metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent
+                };
+            }
+
+            const detected = [];
+            const results = {};
+
+            for (const font of FONTS_TO_TEST) {
+                let isDetected = false;
+                for (const baseFont of BASELINE_FONTS) {
+                    ctx.font = `${TEST_SIZE} '${font}', ${baseFont}`;
+                    const metrics = ctx.measureText(TEST_STRING);
+                    const width = metrics.width;
+                    const height = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
+
+                    if (width !== baselines[baseFont].width || height !== baselines[baseFont].height) {
+                        isDetected = true;
+                        break;
+                    }
+                }
+                results[font] = isDetected;
+                if (isDetected) detected.push(font);
+            }
+
+            return { results, detected };
+        }
+
+        // Simple hash function (djb2 variant)
+        function hashString(str) {
+            let hash = 5381;
+            for (let i = 0; i < str.length; i++) {
+                hash = ((hash << 5) + hash) + str.charCodeAt(i);
+                hash = hash & hash; // Convert to 32-bit integer
+            }
+            // Convert to hex
+            return (hash >>> 0).toString(16).padStart(8, '0');
+        }
+
+        function generateFingerprint(detected) {
+            const sorted = [...detected].sort();
+            const raw = sorted.join('|');
+            // Generate a longer hash by hashing multiple segments
+            const h1 = hashString(raw);
+            const h2 = hashString(raw + 'salt1');
+            const h3 = hashString(raw + 'salt2');
+            const h4 = hashString(raw + 'salt3');
+            return `${h1}${h2}${h3}${h4}`;
+        }
+
+        function run() {
+            const { results, detected } = detectFonts();
+            const fingerprint = generateFingerprint(detected);
+
+            // Update hash display
+            const hashEl = document.getElementById('hash-display');
+            hashEl.textContent = fingerprint;
+            hashEl.classList.remove('loading');
+
+            // Update stats
+            document.getElementById('detected-count').textContent = detected.length;
+            document.getElementById('tested-count').textContent = FONTS_TO_TEST.length;
+
+            // Estimate entropy (log2 of combinations)
+            const entropy = Math.round(detected.length * Math.log2(FONTS_TO_TEST.length / detected.length) * 10) / 10;
+            document.getElementById('entropy').textContent = entropy.toFixed(1);
+
+            // Rough uniqueness estimate
+            const uniqueness = Math.min(99.9, (1 - 1 / Math.pow(2, Math.min(entropy, 33))) * 100);
+            document.getElementById('uniqueness').textContent = uniqueness.toFixed(1) + '%';
+
+            // Render font grid
+            const grid = document.getElementById('font-grid');
+            grid.innerHTML = '';
+
+            // Show detected first, then not detected
+            const sortedFonts = FONTS_TO_TEST.sort((a, b) => {
+                if (results[a] === results[b]) return a.localeCompare(b);
+                return results[a] ? -1 : 1;
+            });
+
+            for (const font of sortedFonts) {
+                const tag = document.createElement('span');
+                tag.className = `font-tag ${results[font] ? 'detected' : 'not-detected'}`;
+                tag.textContent = font;
+                grid.appendChild(tag);
+            }
+        }
+
+        // Run after page loads
+        window.addEventListener('DOMContentLoaded', run);
+    </script>
+</body>
+</html>
